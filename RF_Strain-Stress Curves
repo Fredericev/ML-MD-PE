@@ -1,0 +1,247 @@
+import pandas as pd
+import numpy as np
+import matplotlib
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split, GridSearchCV, learning_curve
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+##########################Load data
+data=pd.read_excel("curve.xlsx")
+data.head()
+###############Heat Map
+
+corr = data.corr()
+mask = np.zeros_like(corr, dtype=bool)
+mask[np.triu_indices_from(mask)] = True
+ax = plt.subplots(figsize=(12, 12))
+ax = sns.heatmap(corr, vmin=-1, vmax=1,mask=mask, square=True, annot=True, cmap= 'coolwarm_r')
+
+plt.xticks(fontsize=10, rotation = 0)
+plt.yticks(fontsize=10)
+plt.show()
+
+##############Pair Plot
+sns.pairplot(data,hue ='Stress', height = 2, aspect = 2)
+plt.show()
+
+############################Baseline model
+#Drop 'Chain'
+data.drop(['Chains'], axis=1, inplace=True)
+
+X = data.drop("Stress", axis = 1)
+y = data.Stress
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+base_model = RandomForestRegressor(random_state=42)
+base_model.fit(X_train, y_train)
+
+y_pred = base_model.predict(X_test)
+
+mse = mean_squared_error(y_test, y_pred)
+rmse = mean_squared_error(y_test, y_pred, squared=False)
+mae = mean_absolute_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+print("Mean Squared Error:", mse)
+print("Root Mean Squared Error:", rmse)
+print("Mean Absolute Error:", mae)
+print("R-squared:", r2)
+
+##############################HyperParameters tuning
+
+param_grid = {'n_estimators': [50, 100, 150, 200], 'max_depth': [5, 10, 15, 20], 'max_features': [1, 2, 3]}
+
+grid = GridSearchCV(base_model, param_grid, cv=5, scoring='r2')
+grid.fit(X_train, y_train)
+
+best_params = grid.best_params_
+grid_best = grid.best_estimator_
+y_pred = grid_best.predict(X_test)
+
+mse = mean_squared_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+print("Best Hyperparameters:", best_params)
+print("Best Score", grid.best_score_)
+print("R2:", r2)
+print("Mean Squared Error:", mse)
+
+###################################Plot for Hyperparemeters
+import matplotlib.colors as mcolors
+results = grid.cv_results_
+params = results['params']
+mean_test_scores = results['mean_test_score']
+
+x_values = np.arange(len(params))
+x_labels = [f"{param['n_estimators']}/{param['max_depth']}/{param['max_features']}" for param in params]
+print(x_labels)
+
+#find the largest value of R2
+max_y_index = np.argmax(mean_test_scores)
+
+# map
+normalize = mcolors.Normalize(vmin=min(mean_test_scores), vmax=max(mean_test_scores))
+
+# color mapping
+colormap = plt.cm.get_cmap('coolwarm')
+
+# Plot
+plt.rcdefaults()
+plt.rcParams['font.size'] = 12
+plt.figure(figsize=(16, 8))
+#plt.bar(x_values, mean_test_scores, edgecolors='black', norm=normalize)
+plt.scatter(x_values, mean_test_scores, c=mean_test_scores, cmap=colormap, s=200, edgecolors='black', norm=normalize)
+
+
+plt.colorbar(label='R-Squared values')
+plt.xlabel('Hyperparameters: number of estimators / max depth / max features')
+plt.ylabel('R2 Score')
+#plt.title('Random Forest Regression - Hyperparameter Tuning')
+plt.xticks(x_values, x_labels, rotation=90)
+plt.yscale('log')
+plt.tight_layout()
+plt.show()
+
+#############################Scatter Plot for the best model
+
+Model = RandomForestRegressor(n_estimators=50, max_depth=10, max_features=1, random_state=42)
+Model.fit(X_train, y_train)
+
+y_train_pred= Model.predict(X_train)
+y_test_pred = Model.predict(X_test)
+
+r2_train = r2_score(y_train, y_train_pred)
+r2_test = r2_score(y_test, y_test_pred)
+
+plt.scatter(y_test, y_test_pred, alpha=0.5, label = f'Test R-Squared = {r2_test:.2f}', s =3, c='#CD64FA' )
+plt.scatter(y_train, y_train_pred, alpha=0.5, label = f'Trainig R-Squared = {r2_train:.2f}', s =3, c='#FBCA66')
+plt.plot([min(y_train), max(y_train)], [min(y_train), max(y_train)], '--', color='grey', linewidth=2)
+plt.xlabel("Stress")
+plt.ylabel("Predicted Stress")
+legend = plt.legend(loc='lower right', fontsize='medium')
+
+plt.show()
+################################ALL Metrics
+
+y_pred = Model.predict(X_test)
+
+mse = mean_squared_error(y_test, y_pred)
+rmse = mean_squared_error(y_test, y_pred, squared=False)
+mae = mean_absolute_error(y_test, y_pred)
+r2 = r2_score(y_test, y_pred)
+
+print("Mean Squared Error:", mse)
+print("Root Mean Squared Error:", rmse)
+print("Mean Absolute Error:", mae)
+print("R-squared:", r2)
+
+###################################Learning Curve
+
+train_sizes = np.linspace(0.1, 1.0, 30)
+
+train_sizes, train_scores, val_scores = learning_curve(
+    Model, X, y, cv=10, train_sizes=train_sizes, scoring='neg_mean_squared_error', random_state=42
+)
+
+train_scores_mean = -np.mean(train_scores, axis=1)
+train_scores_std = np.std(train_scores, axis=1)
+val_scores_mean = -np.mean(val_scores, axis=1)
+val_scores_std = np.std(val_scores, axis=1)
+
+plt.figure(figsize=(10, 6))
+plt.plot(train_sizes, train_scores_mean, label='Training Score', color='blue', linewidth=2)
+plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                 train_scores_mean + train_scores_std, alpha=0.2, color='blue')
+plt.plot(train_sizes, val_scores_mean, label='Validation Score', color='red', linewidth=2)
+plt.fill_between(train_sizes, val_scores_mean - val_scores_std,
+                 val_scores_mean + val_scores_std, alpha=0.2, color='red')
+
+#plt.title('Random Forest Regressor Learning Curve')
+plt.xlabel('Training Set Size')
+plt.ylabel('Mean Squared Error (MSE)')
+plt.legend(loc='upper right')
+plt.grid(True)
+plt.show()
+#####################################SHAP
+import shap
+shap.initjs()
+
+explainer = shap.Explainer(base_model)
+shap_values = explainer.shap_values(X_train)
+
+#Top 3 featuures based onn Mean absolute SHAP values
+top_3_features = pd.DataFrame(shap_values).abs().mean().nlargest(4).index
+
+# SHAP
+shap.summary_plot(shap_values, X_train, plot_size = (10,3))
+
+#bar
+shap.summary_plot(shap_values, X, plot_type="bar", plot_size = (10,3))
+
+# dependence
+for feature_to_plot in top_3_features:
+    dependence_plot = shap.dependence_plot(feature_to_plot, shap_values, X_train, feature_names=X_train.columns)
+
+for i in range(len(top_3_features)):
+    for j in range(i+1, len(top_3_features)):
+        feature_interaction1 = top_3_features[i]
+        feature_interaction2 = top_3_features[j]
+        interaction_plot = shap.dependence_plot(feature_interaction1, shap_values, X_train, feature_names=X_train.columns, interaction_index=feature_interaction2)
+
+#force plot
+shap.initjs()
+force_plot=shap.force_plot(explainer.expected_value, shap_values[0], X_train.iloc[0,:])
+shap.save_html("XG_force_plot.html", force_plot)
+force_plot1=shap.force_plot(explainer.expected_value, shap_values[10], X_train.iloc[10,:])
+shap.save_html("XG_force_plot1.html", force_plot1)
+
+decision_plot = shap.decision_plot(explainer.expected_value, shap_values[0], X_train.iloc[0,:])
+decision_plot = shap.decision_plot(explainer.expected_value, shap_values[10], X_train.iloc[10,:])
+
+exp = shap.Explanation(shap_values[0], base_model.predict(X_train)[0], X_train.iloc[0])
+shap.plots.waterfall(exp)
+
+exp1 = shap.Explanation(shap_values[10], base_model.predict(X_train)[10], X_train.iloc[10])
+shap.plots.waterfall(exp1)
+
+###########################Stability by varying Random Seed
+import random
+rmses = []
+r2s = []
+random_seed=np.arange(10)
+for i in random_seed:
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=random.randint(1,100000))
+    Model.fit(X_train, y_train)
+    y_pred = Model.predict(X_test)
+    rmse = mean_squared_error(y_test, y_pred)
+    rmses.append(rmse)
+    r2 = r2_score(y_test, y_pred)
+    r2s.append(r2)
+
+#scatter plot for the MSE/R2 with different random seed
+from scipy import stats
+plt.figure()
+plt.scatter(random_seed, r2s)
+plt.xlabel('Random Seed')
+plt.ylabel('R-Squared')
+plt.show()
+
+plt.figure()
+plt.scatter(random_seed, rmses)
+plt.ylim(0.0001, 0.0002)
+plt.xlabel('Random Seed')
+plt.ylabel('Mean Squared Error')
+plt.show()
+
+sem = stats.sem(rmses)
+print(sem)
+sem2 =stats.sem(r2s)
+print(sem2)
+
+print(np.max(rmses))
+print(np.min(rmses))
+
+print(np.max(r2s))
+print(np.min(r2s))
